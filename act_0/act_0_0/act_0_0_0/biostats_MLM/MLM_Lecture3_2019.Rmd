@@ -1,0 +1,222 @@
+---
+title: "Lecture 3"
+author: "Lacey Etzkorn"
+date: "April 2, 2019"
+output: html_document
+---
+
+As an R programmer, it might be useful for you to learn to use R markdown. We are going to begin writing lecture notes using .rmd files. 
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(gridExtra)
+df <- read_csv(file = file.path("Data","gcse.csv"))
+head(df)
+```
+
+### EDA:
+
+##### 1)  Quantify the relationship between GCSE score and LRT score.
+
+```{r}
+ggplot(df,aes(x = lrt, y = gcse))+
+geom_point() +
+stat_smooth(method = "loess") +
+xlab("London Reading Test Score") + 
+ylab("GCSE Score") +
+theme_classic()
+```
+
+##### 2) Within a school, quantify the relationship between GCSE score and LRT score
+
+##### 3) Does the context of the school matter?  I.e. do students from schools with higher school-average LRT scores fair better than similar students in schools with lower school-average LRT scores
+
+Start by decomposing the information in LRT into within and between. Create a the mean gcse across schools, to quantify the between effect
+
+```{r}
+df <- df %>%
+group_by(school) %>%
+mutate(mean_lrt = mean(lrt),
+       lrt_within = lrt - mean_lrt, 
+       mean_gcse = mean(gcse),
+       gcse_within = gcse - mean_gcse) %>%
+ungroup() %>%
+mutate(lrt_scaled = lrt_within + mean(lrt),
+       gcse_scaled = gcse_within + mean(gcse))
+head(df)
+```
+
+Create two graphs:  gcse_within vs. lrt_within and mean_gcse vs. mean_lrt
+
+```{r, fig.width = 8}
+within.plot <- 
+ggplot(df, aes(y=gcse_within, x=lrt_within)) +
+geom_point() + 
+stat_smooth(method = "loess") + 
+xlab("LRT score - School-mean LRT score") +
+ylab("GCSE score - School-mean GCSE score") + 
+ggtitle("Within School Effect of LRT on GCSE")+
+theme_classic()
+
+between.plot <- 
+df %>%
+# we only need one student per school to make this plot
+filter(student == 1) %>% 
+ggplot(aes(y=mean_gcse, x=mean_lrt)) +
+geom_point() + 
+stat_smooth(method = "loess") + 
+xlab("School-mean LRT score") +
+ylab("School-mean GCSE score") + 
+ggtitle("Between School Effect of LRT on GCSE") + 
+theme_classic()
+
+grid.arrange(within.plot, between.plot, nrow = 1)
+```
+
+Overlay the between and within group effects on the same graph
+
+```{r}
+ggplot()+
+geom_point(data = df, aes(x = lrt, y = gcse), color = "grey80") +
+geom_point(data = filter(df, student == 1),
+           aes(x = mean_lrt, y = mean_gcse), color = "red") +
+stat_smooth(data = df, aes(x = lrt_scaled, y = gcse_scaled), 
+	method = "lm", se = F, color = "blue") +
+stat_smooth(data = filter(df, student == 1),
+            aes(x = mean_lrt, y = mean_gcse), 
+	method = "lm", color = "darkred", se = F) +
+stat_smooth(data = df,
+            aes(x = lrt, y = gcse), 
+	method = "lm", color = "black", se = F) +
+xlab("London Reading Test Score") + 
+ylab("GCSE Score") +
+theme_classic() +
+# add our own legend
+annotate("point", x = rep(80,5), y = c(55, 50, 45,40,35), 
+         color = c("black", "blue", "darkred", "red","grey80"),
+         shape = c(45,45,45,19,19), size = c(10,10,10,2,2)) +
+annotate("text", x = rep(80,5)+1, y = c(55, 50, 45,40,35), 
+         label = c("Total Effect", "Within Effect", "Between Effect",
+                   "School Averages","Observed Scores"),
+         hjust = 0)
+```
+
+##### Create a dataset with no ecological fallacy
+
+```{r}
+set.seed(88491)
+mod1 <- lm(data = df, gcse~lrt_within+mean_lrt)
+df <- df %>%
+mutate(error = rnorm(nrow(df), 0, sigma(mod1)),
+       new_gcse = error + mod1$coef[1] + mod1$coef[2]*lrt_within + mod1$coef[3]*mean_lrt) %>%
+group_by(school) %>%
+mutate(mean_gcse2 = mean(new_gcse))
+
+ggplot()+
+geom_point(data = df, aes(x = lrt, y = new_gcse), color = "grey80") +
+geom_point(data = filter(df, student == 1),
+           aes(x = mean_lrt, y = mean_gcse), color = "red") +
+stat_smooth(data = df, aes(x = lrt_scaled, y = new_gcse), 
+	method = "lm", se = F, color = "blue") +
+stat_smooth(data = filter(df, student == 1),
+            aes(x = mean_lrt, y = mean_gcse), 
+	method = "lm", color = "darkred", se = F) +
+stat_smooth(data = df,
+            aes(x = lrt, y = new_gcse), 
+	method = "lm", color = "black", se = F) +
+xlab("London Reading Test Score") + 
+ylab("GCSE Score") +
+theme_classic() +
+# add our own legend
+annotate("point", x = rep(80,5), y = c(55, 50, 45,40,35), 
+         color = c("black", "blue", "darkred", "red","grey80"),
+         shape = c(45,45,45,19,19), size = c(10,10,10,2,2)) +
+annotate("text", x = rep(80,5)+1, y = c(55, 50, 45,40,35), 
+         label = c("Total Effect", "Within Effect", "Between Effect",
+                   "School Averages","Simulated Scores"),
+         hjust = 0)
+```
+
+Replicate with between effect is 3 times the within effect just to demonstrate.
+
+```{r}
+set.seed(77432)
+mod1 <- lm(data = df, gcse~lrt_within+mean_lrt)
+df <- df %>%
+ungroup() %>%
+mutate(error = rnorm(nrow(df), 0, sigma(mod1)),
+       new_gcse = error + mod1$coef[1] + mod1$coef[3]/3*lrt_within + mod1$coef[3]*mean_lrt) %>%
+group_by(school) %>%
+mutate(mean_gcse2 = mean(new_gcse))
+
+ggplot()+
+geom_point(data = df, aes(x = lrt, y = new_gcse), color = "grey80") +
+geom_point(data = filter(df, student == 1),
+           aes(x = mean_lrt, y = mean_gcse), color = "red") +
+stat_smooth(data = df, aes(x = lrt_scaled, y = new_gcse), 
+	method = "lm", se = F, color = "blue") +
+stat_smooth(data = filter(df, student == 1),
+            aes(x = mean_lrt, y = mean_gcse), 
+	method = "lm", color = "darkred", se = F) +
+stat_smooth(data = df,
+            aes(x = lrt, y = new_gcse), 
+	method = "lm", color = "black", se = F) +
+xlab("London Reading Test Score") + 
+ylab("GCSE Score") +
+theme_classic() +
+# add our own legend
+annotate("point", x = rep(80,5), y = c(55, 50, 45,40,35), 
+         color = c("black", "blue", "darkred", "red","grey80"),
+         shape = c(45,45,45,19,19), size = c(10,10,10,2,2)) +
+annotate("text", x = rep(80,5)+1, y = c(55, 50, 45,40,35), 
+         label = c("Total Effect", "Within Effect", "Between Effect",
+                   "School Averages","Simulated Scores"),
+         hjust = 0)
+```
+
+##### 4) Are there differences in performance across school type (mixed gender, girls only and boys only)?
+
+```{r}
+df$gender <- factor(df$schgend, labels = c("Mixed", "Boys", "Girls"))
+df %>%
+filter(student==1) %>%
+ggplot() +
+geom_boxplot(aes(x = gender, fill = gender, y = mean_gcse)) +
+theme_classic()
+```
+
+
+##### 5) Within a school, does student gender modify the relationship between GCSE score and LRT score?
+```{r}
+ggplot(df,aes(y = gcse_within, x = lrt_within)) +
+geom_point() +
+stat_smooth(method = "loess") +
+facet_wrap("girl") +
+xlab("LRT score - School-mean LRT score") +
+ylab("GCSE score - School-mean GCSE score") +
+theme_classic()
+```
+
+
+##### 6) Does school type modify the relationship between GCSE score and LRT score?
+
+```{r}
+ggplot(df,aes(y = gcse_within, x = lrt_within)) +
+geom_point() +
+stat_smooth(method = "loess") +
+facet_wrap("gender") +
+xlab("LRT score - School-mean LRT score") +
+ylab("GCSE score - School-mean GCSE score") +
+theme_classic()
+```
+
+
+```{r}
+ggplot(df,aes(y = gcse_within, x = lrt_within)) +
+geom_point(color = "grey80") +
+stat_smooth(method = "loess", aes(color = gender), se=FALSE) +
+xlab("LRT score - School-mean LRT score") +
+ylab("GCSE score - School-mean GCSE score") +
+theme_classic()
+```

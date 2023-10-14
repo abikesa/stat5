@@ -1,0 +1,79 @@
+---
+title: "MLM Sample Sizes"
+author: "Scott Zeger"
+date: "4/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## This note presents one simple approach to calculating the power of a study to detect a non-zero regression coefficient using a 2-level model. The user must specify
+*the between cluster variance of X_bar_i (VarX_w)
+*the within-cluster variance of X_ij - X_bar_i (VarX_b) 
+*note: Var(X_ij) = VarX_w + VarX_b  
+*the 2x2 covariance matrix (D) for the random intercept and slope (D_jk = 0 is allowed for a single random effect)
+* the variance of the residuals (sigma2)
+* the number of clusters (m)
+* the mean (mean_n_i) of the Poisson distribution that generates the within-cluster samples sizes (n_i)
+
+
+```{r data input}
+library(Matrix)
+sigma2_0 = 1
+D0=matrix(c(1,0,0,1),ncol=2)
+mean_n0_i = 10
+m0=25
+# generate n_i values
+results=NULL
+case=NULL
+for (j in 0:2) {
+  mean_n_i = mean_n0_i*(2^j)
+  n_min=2
+  n_i = rpois(m,mean_n_i) + n_min
+  N=sum(n_i)
+  VarX_w = 1
+  VarX_b=3
+  # generate vector of IDs
+id = c(rep(1:m,n_i))
+# generate X-matrix
+  X=cbind(rep(1,N),rnorm(N)*sqrt(VarX_w),rep(rnorm(m),n_i)*sqrt(VarX_b))
+  Z=X[,1:2]
+#V_inv=list()
+
+  for (k in 0:2) {
+    D=(2*k)*D0
+    result= var_beta(X,Z,id,D,sigma2_0,m)
+    results=cbind(results,sqrt(diag(result)))
+    case=c(case,(j*10+k))
+  }
+# results=NULL
+# for (j in 0:2) {
+#   sigma2=sigma2_0*(2^j)
+#   result= var_beta(X,Z,id,D0,sigma2,m)
+#   results=cbind(results,sqrt(diag(result)))
+# }
+# print(results)
+#
+}
+colnames(results)=as.character(case)
+rownames(results)=c("beta_0","beta_1w","beta_1b")
+print(results)
+# 
+var_beta=function(X,Z,id,D,sigma2=1,m=10){
+#  this function calculates the covariance matrix of regression coefficients for a 2-level model
+#
+M = matrix(0,nrow=ncol(X),ncol=ncol(X))
+for (i in 1:m) {
+  Z_i = Z[id==i,]
+  X_i = X[id==i,]
+  V_i_inv=solve(Z_i%*%D%*%t(Z_i)+diag(rep(sigma2,n_i[i])))
+  #V_inv=c(V_inv,V_i_inv)
+  M_i = t(X_i)%*%V_i_inv%*%X_i
+  M=M+M_i
+}
+var_beta=solve(M)
+return(var_beta=var_beta)
+}
+```

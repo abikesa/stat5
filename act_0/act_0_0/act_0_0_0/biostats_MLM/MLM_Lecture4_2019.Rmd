@@ -1,0 +1,135 @@
+---
+title: "Lecture 4"
+author: "Lacey Etzkorn"
+date: "April 2, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(gridExtra)
+library(lme4)
+df <- read_csv(file = file.path("Data","gcse.csv"))
+df <- df %>%
+group_by(school) %>%
+mutate(schoolcount = n()) %>%
+ungroup
+```
+
+###EDA
+
+```{r}
+# How many total subjects in the dataset
+nrow(df)
+```
+
+### What is the distribution of number of students in each school
+
+```{r}
+df %>% filter(student == 1) %>% with(summary(schoolcount))
+```
+
+### What is the distribution of the gcse and lrt scores
+
+```{r}
+df %>% select(gcse, lrt) %>% lapply(summary)
+```
+
+### What is the relationship between gcse and lrt for few schools
+```{r}
+df %>% 
+filter(school <= 12) %>%
+ggplot(aes(lrt, gcse)) +
+geom_point() +
+stat_smooth(method="lm") +
+xlab("LRT Score") +
+ylab("GCSE Score") +
+facet_wrap("school") +
+theme_classic()
+```
+
+### Create SLR of gcse on lrt for each school and plot the fitted lines
+
+```{r}
+df %>% 
+ggplot(aes(lrt, gcse)) +
+geom_point(color = "grey80") +
+stat_smooth(aes(group = school), 
+	method="lm", se=F, size = 0.5) +
+xlab("LRT Score") +
+ylab("GCSE Score") +
+theme_classic()
+```
+
+### Create the same graph we saw in Lecture 3 (between and within effects on same graph)
+
+```{r}
+df <- df %>%
+group_by(school) %>%
+mutate(mean_lrt = mean(lrt),
+       lrt_within = lrt - mean_lrt, 
+       mean_gcse = mean(gcse),
+       gcse_within = gcse - mean_gcse) %>%
+ungroup() %>%
+mutate(lrt_scaled = lrt_within + mean(lrt),
+       gcse_scaled = gcse_within + mean(gcse))
+ggplot()+
+geom_point(data = df, aes(x = lrt, y = gcse), color = "grey80") +
+geom_point(data = filter(df, student == 1),
+           aes(x = mean_lrt, y = mean_gcse), color = "red") +
+stat_smooth(data = df, aes(x = lrt_scaled, y = gcse_scaled), 
+	method = "lm", se = F, color = "blue") +
+stat_smooth(data = filter(df, student == 1),
+            aes(x = mean_lrt, y = mean_gcse), 
+	method = "lm", color = "darkred", se = F) +
+stat_smooth(data = df,
+            aes(x = lrt, y = gcse), 
+	method = "lm", color = "black", se = F) +
+xlab("London Reading Test Score") + 
+ylab("GCSE Score") +
+theme_classic() +
+# add our own legend
+annotate("point", x = rep(80,5), y = c(55, 50, 45,40,35), 
+         color = c("black", "blue", "darkred", "red","grey80"),
+         shape = c(45,45,45,19,19), size = c(10,10,10,2,2)) +
+annotate("text", x = rep(80,5)+1, y = c(55, 50, 45,40,35), 
+         label = c("Total Effect", "Within Effect", "Between Effect",
+                   "School Averages","Observed Scores"),
+         hjust = 0)
+```
+
+### Possible models
+
+```{r}
+mod1 <- lmer(data = df, gcse~lrt + (1|school))
+mod2 <- lmer(data = df, gcse~lrt+mean_lrt + (1|school))
+mod3 <- lmer(data = df, gcse~lrt_within+mean_lrt + (1|school))
+mod4 <- lmer(data = df, gcse~lrt_within + (1|school))
+mod5 <- lmer(data = df, gcse~mean_lrt + (1|school))
+list(mod1, mod2, mod3, mod4, mod5) %>%
+lapply(fixef)
+```
+
+### Interpretation of Models 4 and 5
+
+```{r}
+df %>% select(lrt,lrt_within,mean_lrt,girl,schgend) %>% cor()
+```
+
+### Demonstrate the appropriate adjustment if you don't center or grand mean center
+
+```{r}
+df <- df %>%
+mutate(lrt_grandmean = lrt - mean(lrt),
+       girl_grandmean = girl - mean(girl)) %>%
+group_by(school) %>%
+mutate(mean_girl = mean(girl),
+       girl_within = girl - mean_girl)
+mod1 <- lmer(data = df, gcse~factor(schgend) + (1|school))
+mod2 <- lmer(data = df, gcse~factor(schgend)+lrt+girl + (1|school))
+mod3 <- lmer(data = df, gcse~factor(schgend)+lrt_grandmean + girl_grandmean + (1|school))
+mod3 <- lmer(data = df, gcse~factor(schgend)+lrt_within + girl_within + (1|school))
+list(mod1, mod2, mod3, mod4) %>%
+lapply(fixef)
+```
